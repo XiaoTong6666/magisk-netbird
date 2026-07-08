@@ -5,6 +5,8 @@ DIR=$(dirname "$(realpath "$0")")
 
 program_name="netbird"
 pid_file="$NB_RUN_DIR/netbird.pid"
+cert_trust_script="$NB_SCRIPTS_DIR/cert-trust.sh"
+module_status_script="$NB_SCRIPTS_DIR/module-status.sh"
 overlay_rule_pref="90"
 root_route_rule_pref="100"
 
@@ -92,8 +94,24 @@ ensure_netbird_icmp_firewall() {
 }
 
 refresh_runtime() {
+  [ -x "$cert_trust_script" ] && "$cert_trust_script" update >/dev/null 2>&1 || true
   ensure_android_route
   ensure_netbird_icmp_firewall
+}
+
+update_module_status() {
+  [ -x "$module_status_script" ] || return 0
+  "$module_status_script" update >/dev/null 2>&1 || true
+}
+
+start_module_status() {
+  [ -x "$module_status_script" ] || return 0
+  "$module_status_script" start >/dev/null 2>&1 || true
+}
+
+stop_module_status() {
+  [ -x "$module_status_script" ] || return 0
+  "$module_status_script" stop >/dev/null 2>&1 || true
 }
 
 start_service() {
@@ -101,10 +119,12 @@ start_service() {
   if is_running; then
     log Info "NetBird daemon is already running."
     refresh_runtime
+    start_module_status
     return 0
   fi
   if ! command -v netbird >/dev/null 2>&1; then
     log Error "netbird binary not found."
+    update_module_status
     return 1
   fi
   ensure_android_route
@@ -117,10 +137,12 @@ start_service() {
   if ps -p "$pid" >/dev/null 2>&1; then
     echo "$pid" > "$pid_file"
     log Info "NetBird daemon started with PID $pid."
-    ( sleep 5; refresh_runtime ) >/dev/null 2>&1 &
+    start_module_status
+    ( sleep 5; refresh_runtime; update_module_status ) >/dev/null 2>&1 &
     return 0
   fi
   log Error "NetBird daemon failed to start."
+  update_module_status
   return 1
 }
 
@@ -141,6 +163,7 @@ stop_service() {
     done
   fi
   rm -f "$pid_file"
+  stop_module_status
 }
 
 daemon_status() {
@@ -188,7 +211,11 @@ case "${1:-}" in
     shift
     if daemon_status; then
       client_cmd status "$@"
+      rc="$?"
+      update_module_status
+      exit "$rc"
     else
+      update_module_status
       exit 1
     fi
     ;;
@@ -196,24 +223,37 @@ case "${1:-}" in
     shift
     start_service
     up_cmd "$@"
+    rc="$?"
+    update_module_status
+    exit "$rc"
     ;;
   down)
     shift
     client_cmd down "$@"
+    rc="$?"
+    update_module_status
+    exit "$rc"
     ;;
   login)
     shift
     start_service
     client_cmd login "$@"
+    rc="$?"
+    update_module_status
+    exit "$rc"
     ;;
   log)
     busybox tail -n 200 -f "$NB_LOG_FILE_PATH"
     ;;
   refresh)
     refresh_runtime
+    update_module_status
     ;;
   version)
     client_cmd version
+    rc="$?"
+    update_module_status
+    exit "$rc"
     ;;
   *)
     usage

@@ -3,4 +3,4 @@ name=Magisk NetBird
 version=v0.1.0
 versionCode=1
 author=local
-description=NetBird CLI daemon for Magisk with DNS management disabled by default.
+description=NetBird status will update here after the daemon starts.

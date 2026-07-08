@@ -12,6 +12,7 @@ NB_DIR="/data/adb/netbird"
 NB_BIN_DIR="$NB_DIR/bin"
 NB_SCRIPTS_DIR="$NB_DIR/scripts"
 NB_RUN_DIR="$NB_DIR/run"
+NB_CERT_DIR="$NB_DIR/certs"
 
 case "$ARCH" in
   arm64)
@@ -50,7 +51,7 @@ gh_download() {
 ui_print "- Extracting module files"
 unzip -qqo "$ZIPFILE" -x 'META-INF/*' 'netbird/*' -d "$MODPATH"
 
-mkdir -p "$NB_BIN_DIR" "$NB_SCRIPTS_DIR" "$NB_RUN_DIR" "$MODPATH/system/bin"
+mkdir -p "$NB_BIN_DIR" "$NB_SCRIPTS_DIR" "$NB_RUN_DIR" "$NB_CERT_DIR" "$MODPATH/system/bin"
 echo "$MODPATH" > "$NB_DIR/module.path"
 
 unzip -qqjo "$ZIPFILE" "netbird/scripts/*" -d "$NB_SCRIPTS_DIR"
