@@ -1,0 +1,159 @@
+#!/system/bin/sh
+
+DIR=$(dirname "$(realpath "$0")")
+. "$DIR/../settings.sh"
+
+program_name="netbird"
+pid_file="$NB_RUN_DIR/netbird.pid"
+
+is_running() {
+  busybox pgrep -f "$NB_DAEMON_CMD" >/dev/null 2>&1
+}
+
+ensure_android_route() {
+  route_table="$(
+    ip route show table all 2>/dev/null |
+      awk '/^default / && $0 !~ / dev dummy0/ {
+        for (i = 1; i <= NF; i++) {
+          if ($i == "table") {
+            print $(i + 1)
+            exit
+          }
+        }
+      }'
+  )"
+  if [ -z "$route_table" ]; then
+    log Warning "No Android default route table found for root uid."
+    return 0
+  fi
+  case "$route_table" in
+    *[!0-9]*)
+      route_table_id="$(
+        awk -v name="$route_table" '$2 == name { print $1; exit }' \
+          /data/misc/net/rt_tables /etc/iproute2/rt_tables 2>/dev/null || true
+      )"
+      [ -n "$route_table_id" ] && route_table="$route_table_id"
+      ;;
+  esac
+  if ip rule show 2>/dev/null | grep -q "uidrange 0-0 lookup $route_table"; then
+    return 0
+  fi
+  ip rule add pref 100 from all uidrange 0-0 lookup "$route_table" >/dev/null 2>&1 ||
+    log Warning "Failed to add root uid route rule for table $route_table."
+}
+
+start_service() {
+  log Info "Starting NetBird daemon."
+  if is_running; then
+    log Info "NetBird daemon is already running."
+    return 0
+  fi
+  if ! command -v netbird >/dev/null 2>&1; then
+    log Error "netbird binary not found."
+    return 1
+  fi
+  ensure_android_route
+  rm -f "$NB_SOCKET"
+  [ -f "$NB_LOG_FILE_PATH" ] && mv "$NB_LOG_FILE_PATH" "$NB_LOG_FILE_PATH.bak"
+  # shellcheck disable=SC2086
+  nohup $NB_DAEMON_CMD > "$NB_LOG_FILE_PATH" 2>&1 &
+  pid="$!"
+  sleep 3
+  if ps -p "$pid" >/dev/null 2>&1; then
+    echo "$pid" > "$pid_file"
+    log Info "NetBird daemon started with PID $pid."
+    return 0
+  fi
+  log Error "NetBird daemon failed to start."
+  return 1
+}
+
+stop_service() {
+  log Info "Stopping NetBird daemon."
+  if ! is_running; then
+    log Info "NetBird daemon is not running."
+    return 0
+  fi
+  for pid in $(busybox pgrep -f "$NB_DAEMON_CMD" 2>/dev/null); do
+    kill -15 "$pid" >/dev/null 2>&1 || true
+  done
+  sleep 3
+  if is_running; then
+    log Warning "NetBird daemon did not stop cleanly; forcing stop."
+    for pid in $(busybox pgrep -f "$NB_DAEMON_CMD" 2>/dev/null); do
+      kill -9 "$pid" >/dev/null 2>&1 || true
+    done
+  fi
+  rm -f "$pid_file"
+}
+
+daemon_status() {
+  if is_running; then
+    echo "daemon: running"
+    return 0
+  fi
+  echo "daemon: stopped"
+  return 1
+}
+
+client_cmd() {
+  ensure_android_route
+  (
+    unset NB_CONFIG
+    netbird --daemon-addr "$NB_DAEMON_ADDR" "$@"
+  )
+}
+
+up_cmd() {
+  client_cmd up --disable-dns "$@"
+}
+
+usage() {
+  echo "usage: netbird.service {start|stop|restart|status|up|down|login|log|version}"
+  echo "  up always adds --disable-dns before your extra flags."
+}
+
+case "${1:-}" in
+  start)
+    start_service
+    ;;
+  stop)
+    stop_service
+    ;;
+  restart)
+    stop_service
+    sleep 1
+    start_service
+    ;;
+  status)
+    shift
+    if daemon_status; then
+      client_cmd status "$@"
+    else
+      exit 1
+    fi
+    ;;
+  up)
+    shift
+    start_service
+    up_cmd "$@"
+    ;;
+  down)
+    shift
+    client_cmd down "$@"
+    ;;
+  login)
+    shift
+    start_service
+    client_cmd login "$@"
+    ;;
+  log)
+    busybox tail -n 200 -f "$NB_LOG_FILE_PATH"
+    ;;
+  version)
+    client_cmd version
+    ;;
+  *)
+    usage
+    ;;
+esac
