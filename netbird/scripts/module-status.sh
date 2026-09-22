@@ -382,8 +382,12 @@ write_module_prop() {
 }
 
 watcher_pids() {
+  # Suffix-anchored match: only the real `... module-status.sh watch` process
+  # ends with that text. An unanchored substring pattern also matches shells
+  # that merely *mention* it (su -c wrappers, greps) and would reap the
+  # caller's own session.
   if command -v busybox >/dev/null 2>&1; then
-    busybox pgrep -f 'module-status.sh watch' 2>/dev/null
+    busybox pgrep -f 'module-status\.sh watch$' 2>/dev/null
     return 0
   fi
   ps -A -o PID,ARGS 2>/dev/null |
@@ -391,14 +395,25 @@ watcher_pids() {
 }
 
 reap_extra_watchers() {
-  # Kill every live watcher except $1 (optional). A stale pid file must never
-  # leave duplicate watchers racing route rules and module.prop writes.
+  # Kill every live watcher except $1 (optional), escalating TERM -> KILL.
+  # A stale pid file must never leave duplicate watchers racing route rules
+  # and module.prop writes.
   reap_keep="${1:-}"
+  reap_targets=""
   for reap_pid in $(watcher_pids); do
+    [ "$reap_pid" = "$$" ] && continue
     if [ -n "$reap_keep" ] && [ "$reap_pid" = "$reap_keep" ]; then
       continue
     fi
+    reap_targets="$reap_targets $reap_pid"
     kill "$reap_pid" >/dev/null 2>&1 || true
+  done
+  [ -n "$reap_targets" ] || return 0
+  sleep 1
+  for reap_pid in $reap_targets; do
+    if kill -0 "$reap_pid" >/dev/null 2>&1; then
+      kill -9 "$reap_pid" >/dev/null 2>&1 || true
+    fi
   done
 }
 
