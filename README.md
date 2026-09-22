@@ -1,5 +1,14 @@
 # Magisk NetBird
 
+![Release](https://img.shields.io/github/v/release/ahsaboy/magisk-netbird)
+![CI](https://img.shields.io/github/actions/workflow/status/ahsaboy/magisk-netbird/release.yml?branch=main&label=CI)
+![Downloads](https://img.shields.io/github/downloads/ahsaboy/magisk-netbird/total)
+![NetBird](https://img.shields.io/github/v/release/netbirdio/netbird?label=NetBird)
+![Magisk](https://img.shields.io/badge/Magisk-%E2%89%A520.4-green)
+![Arch](https://img.shields.io/badge/arch-arm64%20%7C%20armv7%20%7C%20x86__64-lightgrey)
+
+**[English](README.md) · [中文](README.zh-CN.md)**
+
 Minimal Magisk module wrapper for the NetBird CLI daemon. Official NetBird
 binaries (currently v0.79.0) are bundled for three architectures and packaged
 by GitHub Actions.
