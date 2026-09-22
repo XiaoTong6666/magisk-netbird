@@ -21,15 +21,6 @@ by GitHub Actions.
 
 DNS management is disabled by default when joining with `netbird.service up`.
 
-## Architecture
-
-How the pieces fit together (official NetBird diagram — management service,
-signal server, relay and peers):
-
-<p align="center">
-  <img src="docs/netbird-architecture.png" alt="NetBird high-level architecture" width="720">
-</p>
-
 ## Download
 
 | Zip | Devices |

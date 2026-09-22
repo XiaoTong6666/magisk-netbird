@@ -20,14 +20,6 @@ NetBird CLI 常驻进程的精简 Magisk 模块封装。为三种架构打包官
 
 使用 `netbird.service up` 加入网络时，默认禁用 DNS 管理。
 
-## 架构
-
-各组件如何协同（NetBird 官方高层架构图——管理服务、信号服务器、中继与对等节点）：
-
-<p align="center">
-  <img src="docs/netbird-architecture.png" alt="NetBird 高层架构图" width="720">
-</p>
-
 ## 下载
 
 | 压缩包 | 适用设备 |
