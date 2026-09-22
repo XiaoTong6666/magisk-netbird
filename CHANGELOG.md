@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.0 — NetBird v0.79.0
+
+- Builds: `magisk-netbird-x86_64.zip` / `magisk-netbird-arm64-v8a.zip` / `magisk-netbird-armv7.zip`
+- See the GitHub release notes for details.
+
 ## v1.2.0 — NetBird v0.79.0
 
 - Builds: `magisk-netbird-x86_64.zip` / `magisk-netbird-arm64-v8a.zip` / `magisk-netbird-armv7.zip`
