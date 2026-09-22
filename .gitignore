@@ -1,1 +1,20 @@
-netbird/bin/netbird
+# Build artifacts
+dist/
+*.zip
+
+# Binaries (per-arch, populated at build time)
+netbird/bin/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local harness files
+.mimocode/
+mimocode.md

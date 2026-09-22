@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      netbird_version:
+        description: 'NetBird version (e.g. 0.79.0; empty = latest)'
+        required: false
+        default: ''
+      module_version:
+        description: 'Module version (e.g. v1.2.0; empty = tag or module.prop)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      nb: ${{ steps.ver.outputs.nb }}
+      mv: ${{ steps.ver.outputs.mv }}
+      vc: ${{ steps.ver.outputs.vc }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: x86_64
+            nb_arch: amd64
+            bundled: netbird-x86_64
+            zip_name: magisk-netbird-x86_64.zip
+          - key: arm64-v8a
+            nb_arch: arm64
+            bundled: netbird-arm64
+            zip_name: magisk-netbird-arm64-v8a.zip
+          - key: armv7
+            nb_arch: armv6 # official armv6 build runs on armeabi-v7a
+            bundled: netbird-arm
+            zip_name: magisk-netbird-armv7.zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve versions
+        id: ver
+        run: |
+          set -euo pipefail
+          NB="${{ inputs.netbird_version }}"
+          if [ -z "$NB" ]; then
+            NB="$(curl -fsSL -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ github.token }}" \
+              https://api.github.com/repos/netbirdio/netbird/releases/latest |
+              jq -r '.tag_name' | sed 's/^v//')"
+          fi
+          case "$NB" in ''|null) echo "::error::cannot resolve latest NetBird version"; exit 1 ;; esac
+          MV="${{ inputs.module_version }}"
+          if [ -z "$MV" ]; then
+            case "$GITHUB_REF" in
+              refs/tags/*) MV="$GITHUB_REF_NAME" ;;
+              *) MV="$(grep '^version=' module.prop | cut -d= -f2)" ;;
+            esac
+          fi
+          # versionCode convention: major*10000 + minor*100 + patch (v1.2.0 -> 10200)
+          V="${MV#v}"
+          MAJ="${V%%.*}"; R="${V#*.}"; MIN="${R%%.*}"; PAT="${R#*.}"; PAT="${PAT%%.*}"
+          case "$MAJ$MIN$PAT" in
+            ''|*[!0-9]*) echo "::error::module version '$MV' is not x.y.z"; exit 1 ;;
+          esac
+          VC=$(( 10#$MAJ * 10000 + 10#$MIN * 100 + 10#$PAT ))
+          {
+            echo "nb=$NB"
+            echo "mv=$MV"
+            echo "vc=$VC"
+          } >> "$GITHUB_OUTPUT"
+          echo "NetBird v$NB | module $MV (versionCode $VC) | arch ${{ matrix.key }}"
+
+      - name: Download official NetBird binary (sha256 verified)
+        run: |
+          set -euo pipefail
+          NB='${{ steps.ver.outputs.nb }}'
+          A='${{ matrix.nb_arch }}'
+          BASE="https://github.com/netbirdio/netbird/releases/download/v${NB}"
+          F="netbird_${NB}_linux_${A}.tar.gz"
+          curl -fL --retry 3 -o "$F" "$BASE/$F"
+          curl -fL --retry 3 -o checksums.txt "$BASE/netbird_${NB}_checksums.txt"
+          WANT="$(awk -v f="$F" '$2 == f { print $1 }' checksums.txt)"
+          GOT="$(sha256sum "$F" | awk '{ print $1 }')"
+          if [ -z "$WANT" ] || [ "$WANT" != "$GOT" ]; then
+            echo "::error::sha256 verification failed for $F (want=$WANT got=$GOT)"
+            exit 1
+          fi
+          echo "sha256 OK: $F"
+          mkdir -p nbtmp
+          tar -xzf "$F" -C nbtmp
+          BIN="$(find nbtmp -type f -name netbird | head -n 1)"
+          if [ -z "$BIN" ]; then echo "::error::netbird binary not found in archive"; exit 1; fi
+          mkdir -p netbird/bin
+          install -m 755 "$BIN" "netbird/bin/${{ matrix.bundled }}"
+
+      - name: Stamp module.prop
+        run: |
+          set -euo pipefail
+          sed -i "s|^version=.*|version=${{ steps.ver.outputs.mv }}|" module.prop
+          sed -i "s|^versionCode=.*|versionCode=${{ steps.ver.outputs.vc }}|" module.prop
+          grep -E '^(id|version|versionCode|updateJson)=' module.prop
+
+      - name: Package zip
+        run: |
+          set -euo pipefail
+          zip -r9 "${{ matrix.zip_name }}" \
+            META-INF customize.sh module.prop service.sh uninstall.sh action.sh \
+            README.md netbird system
+          unzip -l "${{ matrix.zip_name }}" | grep -E 'netbird/bin/netbird|module.prop$'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.key }}
+          path: ${{ matrix.zip_name }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
+
+      - name: Refresh update manifests and changelog
+        run: |
+          set -euo pipefail
+          MV='${{ needs.build.outputs.mv }}'
+          VC='${{ needs.build.outputs.vc }}'
+          NB='${{ needs.build.outputs.nb }}'
+          RAW="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main"
+          ZIP_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
+          CL="${RAW}/CHANGELOG.md"
+          mkdir -p update
+          for KEY in x86_64 arm64-v8a armv7; do
+            jq -n --arg v "$MV" --argjson vc "$VC" \
+              --arg z "$ZIP_BASE/magisk-netbird-${KEY}.zip" --arg c "$CL" \
+              '{version: $v, versionCode: $vc, zipUrl: $z, changelog: $c}' \
+              > "update/update-${KEY}.json"
+          done
+          # Legacy manifest for installs of the old v1.0.x line (single-arch, arm64)
+          jq -n --arg v "$MV" --argjson vc "$VC" \
+            --arg z "$ZIP_BASE/magisk-netbird-arm64-v8a.zip" --arg c "$CL" \
+            '{version: $v, versionCode: $vc, zipUrl: $z, changelog: $c}' \
+            > update.json
+          ENTRY="$(printf '## %s — NetBird v%s\n\n- Builds: `magisk-netbird-x86_64.zip` / `magisk-netbird-arm64-v8a.zip` / `magisk-netbird-armv7.zip`\n- See the GitHub release notes for details.\n' "$MV" "$NB")"
+          { head -n 1 CHANGELOG.md; echo; printf '%s\n' "$ENTRY"; tail -n +2 CHANGELOG.md; } > CHANGELOG.md.tmp
+          mv CHANGELOG.md.tmp CHANGELOG.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add update.json update/ CHANGELOG.md
+          git diff --cached --quiet || git commit -m "chore: update manifests for ${MV}"
+          git push origin HEAD:main || echo "::warning::could not push manifest refresh to main"

@@ -1,8 +1,46 @@
 # Magisk NetBird
 
-Minimal Magisk module wrapper for the NetBird CLI daemon (bundles NetBird v0.79.0 for arm64).
+Minimal Magisk module wrapper for the NetBird CLI daemon. Official NetBird
+binaries (currently v0.79.0) are bundled for three architectures and packaged
+by GitHub Actions.
 
 DNS management is disabled by default when joining with `netbird.service up`.
+
+## Download
+
+| Zip | Devices |
+| --- | --- |
+| `magisk-netbird-arm64-v8a.zip` | arm64-v8a (most modern phones) |
+| `magisk-netbird-armv7.zip` | 32-bit ARM (armeabi-v7a) |
+| `magisk-netbird-x86_64.zip` | x86_64 (emulators, some Chromebooks) |
+
+Latest release: <https://github.com/ahsaboy/magisk-netbird/releases/latest>
+
+Every install stamps a per-architecture `updateJson` into `module.prop`
+(`update/update-<arch>.json`), so the Magisk app shows an
+**update available** banner after a new release. The banner works in
+Kitsune and older managers too; the ACTION button needs Magisk v28+.
+
+## Cutting a release
+
+```sh
+# bump version + versionCode in module.prop (v1.3.0 -> 10300), commit, then:
+git tag v1.3.0
+git push origin main v1.3.0
+```
+
+The `Release` workflow downloads the matching official NetBird release for
+each architecture, verifies sha256 against `checksums.txt`, packages the three
+zips, attaches them to the GitHub Release, and refreshes `update/*.json`,
+`update.json` and `CHANGELOG.md` on `main`.
+
+Local packaging without CI (needs `netbird/bin/netbird-<arch>` in place,
+otherwise the installer falls back to downloading at install time):
+
+```sh
+zip -r9 magisk-netbird-local.zip META-INF customize.sh module.prop service.sh \
+  uninstall.sh action.sh README.md netbird system
+```
 
 ## Usage
 

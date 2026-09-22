@@ -18,10 +18,17 @@ case "$ARCH" in
   arm64)
     RELEASE_ARCH="arm64"
     BUNDLED_ARCH="arm64"
+    UPDATE_KEY="arm64-v8a"
     ;;
   arm)
     RELEASE_ARCH="armv6"
     BUNDLED_ARCH="arm"
+    UPDATE_KEY="armv7"
+    ;;
+  x64)
+    RELEASE_ARCH="amd64"
+    BUNDLED_ARCH="x86_64"
+    UPDATE_KEY="x86_64"
     ;;
   *)
     abort "! Unsupported architecture: $ARCH"
@@ -105,6 +112,17 @@ gh_download() {
 
 ui_print "- Extracting module files"
 unzip -qqo "$ZIPFILE" -x 'META-INF/*' 'netbird/*' -d "$MODPATH"
+
+# Per-arch update manifest: the Magisk app fetches this URL to show the
+# "update available" banner (version/versionCode/zipUrl live in update/*.json).
+UPDATE_JSON_URL="https://raw.githubusercontent.com/ahsaboy/magisk-netbird/main/update/update-${UPDATE_KEY}.json"
+if [ -f "$MODPATH/module.prop" ]; then
+  if grep -q '^updateJson=' "$MODPATH/module.prop"; then
+    sed -i "s|^updateJson=.*|updateJson=${UPDATE_JSON_URL}|" "$MODPATH/module.prop"
+  else
+    printf 'updateJson=%s\n' "$UPDATE_JSON_URL" >> "$MODPATH/module.prop"
+  fi
+fi
 
 mkdir -p "$NB_BIN_DIR" "$NB_SCRIPTS_DIR" "$NB_RUN_DIR" "$NB_CERT_DIR" "$MODPATH/system/bin"
 echo "$MODPATH" > "$NB_DIR/module.path"
