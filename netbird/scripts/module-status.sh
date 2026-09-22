@@ -381,6 +381,27 @@ write_module_prop() {
   done
 }
 
+watcher_pids() {
+  if command -v busybox >/dev/null 2>&1; then
+    busybox pgrep -f 'module-status.sh watch' 2>/dev/null
+    return 0
+  fi
+  ps -A -o PID,ARGS 2>/dev/null |
+    awk '/module-status[.]sh watch$/ { print $1 }'
+}
+
+reap_extra_watchers() {
+  # Kill every live watcher except $1 (optional). A stale pid file must never
+  # leave duplicate watchers racing route rules and module.prop writes.
+  reap_keep="${1:-}"
+  for reap_pid in $(watcher_pids); do
+    if [ -n "$reap_keep" ] && [ "$reap_pid" = "$reap_keep" ]; then
+      continue
+    fi
+    kill "$reap_pid" >/dev/null 2>&1 || true
+  done
+}
+
 watcher_running() {
   [ -f "$watch_pid_file" ] || return 1
   pid="$(cat "$watch_pid_file" 2>/dev/null || true)"
@@ -389,8 +410,10 @@ watcher_running() {
 
 start_watcher() {
   if watcher_running; then
+    reap_extra_watchers "$(cat "$watch_pid_file" 2>/dev/null || true)"
     return 0
   fi
+  reap_extra_watchers ""
   nohup "$0" watch </dev/null >/dev/null 2>&1 &
   echo "$!" > "$watch_pid_file"
 }
@@ -400,6 +423,7 @@ stop_watcher() {
     pid="$(cat "$watch_pid_file" 2>/dev/null || true)"
     kill "$pid" >/dev/null 2>&1 || true
   fi
+  reap_extra_watchers ""
   rm -f "$watch_pid_file"
 }
 
