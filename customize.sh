@@ -129,6 +129,9 @@ echo "$MODPATH" > "$NB_DIR/module.path"
 
 unzip -qqjo "$ZIPFILE" "netbird/scripts/*" -d "$NB_SCRIPTS_DIR"
 unzip -qqjo "$ZIPFILE" "netbird/settings.sh" -d "$NB_DIR"
+# User-config template; the live config is /data/adb/netbird/.env and is
+# never touched by updates.
+unzip -qqjo "$ZIPFILE" "netbird/netbird.env.example" -d "$NB_DIR" 2>/dev/null || true
 
 # Bundled binary: stage into a fresh temp dir and check for the FILE (device
 # unzip returns rc=0 even when no member matched), then atomically replace.

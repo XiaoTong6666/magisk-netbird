@@ -83,6 +83,13 @@ su -c 'echo -n <KEY> > /data/adb/netbird/setup.key && chmod 600 /data/adb/netbir
 su -c 'netbird.service up --setup-key-file /data/adb/netbird/setup.key --management-url <URL>'
 ```
 
+Inspect every peer with connection details (P2P direct vs relayed, latency,
+traffic, last handshake):
+
+```sh
+su -c 'netbird.service peers'
+```
+
 In the Magisk app (v28+), the module's **ACTION** button runs `action.sh`: it
 refreshes CA bundle, route rules and firewall rules, then prints status.
 
@@ -102,6 +109,22 @@ variables (environment outranks CLI flags in NetBird):
 | `NB_NETWORK_MONITOR` | `true` | Upstream defaults to `false` on Linux; enabled for faster reconnects after network switches. |
 | `NB_STATE_DIR` | `/data/adb/netbird` | Writable location for `state.json` / WireGuard keys (upstream default `/var/lib/netbird` does not exist on Android). |
 | `NB_LOG_LEVEL` | `info` | NetBird log level. |
+| `NB_LOG_MAX_SIZE_MB` | `5` | NetBird's own log-rotation cap for `client.log` in MiB (upstream default 15). |
+| `NB_WATCHDOG` | `on` | Watchdog: auto-restart the daemon when its status stops responding; `off` disables. |
+| `NB_WATCHDOG_FAILS` | `3` | Failed status probes (one per refresh cycle) before a restart. |
+| `NB_WATCHDOG_MAX_RESTARTS` | `10` | Restart budget; reset after 5 healthy cycles. |
+
+All of the variables above (and any other variable the official client
+supports) can be persisted in `/data/adb/netbird/.env` as `KEY=VALUE` lines
+(`#` starts a comment); a real environment variable still wins over the file.
+Start from the installed template:
+
+```sh
+cp /data/adb/netbird/netbird.env.example /data/adb/netbird/.env
+```
+
+Daemon-read variables (e.g. `NB_LOG_LEVEL`) apply after the next
+`netbird.service restart`; no reboot is needed.
 
 Flags added by `up` persist in `config.json` and are applied on (re)connect,
 so after changing them run `netbird.service down` followed by
@@ -109,12 +132,15 @@ so after changing them run `netbird.service down` followed by
 
 The status watcher re-applies the Android root route rule every refresh cycle
 (default 60s), so Wi-Fi/cellular switches no longer require a manual restart.
+The same watcher probes daemon health each cycle and restarts it after 3
+consecutive failed probes (watchdog: budget10 restarts, reset after5 healthy
+cycles - tunable via `NB_WATCHDOG*`, disable with `NB_WATCHDOG=off`).
 `netbird.service stop` (and uninstall) removes all ip rules and iptables rules
 the module added.
 
 ## Dynamic status
 
-While the daemon is running, `module.prop` is refreshed periodically. Because module descriptions are single-line metadata, status is shown as compact paired fields such as IP/peers, management/signal, relay/interface, memory, CA count, and refresh time.
+While the daemon is running, `module.prop` is refreshed periodically. Because module descriptions are single-line metadata, status is shown as compact paired fields such as IP/peers, management/signal, relay/interface, memory, CA count, and refresh time. The peers field carries a direct/relay bracket (`[P3 R1]` = 3 direct, 1 relayed); `WD=n` shows accumulated watchdog restarts.
 
 ## Custom CA trust
 

@@ -81,6 +81,12 @@ su -c 'echo -n <KEY> > /data/adb/netbird/setup.key && chmod 600 /data/adb/netbir
 su -c 'netbird.service up --setup-key-file /data/adb/netbird/setup.key --management-url <URL>'
 ```
 
+查看每个对端的连接细节（P2P 直连 / Relayed 中转、延迟、流量、最近握手）：
+
+```sh
+su -c 'netbird.service peers'
+```
+
 在 Magisk App（v28+）中，模块的 **ACTION** 按钮会执行 `action.sh`：刷新
 CA 证书包、路由规则和防火墙规则，然后输出状态。
 
@@ -100,20 +106,37 @@ CA 证书包、路由规则和防火墙规则，然后输出状态。
 | `NB_NETWORK_MONITOR` | `true` | 上游在 Linux 上默认为 `false`；此处启用以便网络切换后更快重连。 |
 | `NB_STATE_DIR` | `/data/adb/netbird` | `state.json` / WireGuard 密钥的可写存放目录（上游默认的 `/var/lib/netbird` 在 Android 上不存在）。 |
 | `NB_LOG_LEVEL` | `info` | NetBird 日志级别。 |
+| `NB_LOG_MAX_SIZE_MB` | `5` | NetBird 自带的 `client.log` 轮转上限（MiB，上游默认 15）。 |
+| `NB_WATCHDOG` | `on` | 看门狗：daemon 状态连续无响应时自动重启；`off` 关闭。 |
+| `NB_WATCHDOG_FAILS` | `3` | 连续多少次状态探测失败（每刷新周期一次）后触发重启。 |
+| `NB_WATCHDOG_MAX_RESTARTS` | `10` | 重启预算；连续 5 个健康周期后重置。 |
+
+上表所有变量（以及官方客户端支持的任何其他变量）都可以持久化到
+`/data/adb/netbird/.env`（每行 `KEY=VALUE`，`#` 开头为注释）；真实环境
+变量依然优先于该文件。从已安装的模板开始：
+
+```sh
+cp /data/adb/netbird/netbird.env.example /data/adb/netbird/.env
+```
+daemon 读取的变量（如 `NB_LOG_LEVEL`）在下次 `netbird.service restart`
+后生效，无需重启手机。
 
 `up` 添加的参数会持久化到 `config.json`，并在（重新）连接时生效，因此
 修改后需要先执行 `netbird.service down`、再执行 `netbird.service up`
 （或直接 `netbird.service restart`）。
 
 状态监视线程会在每个刷新周期（默认 60 秒）重新应用 Android root 路由规则，
-因此 Wi-Fi/蜂窝网络切换不再需要手动重启。`netbird.service stop`（以及卸载）
-会清除模块添加的所有 ip 规则和 iptables 规则。
+因此 Wi-Fi/蜂窝网络切换不再需要手动重启。同一监视线程还会在每个周期探测
+daemon 健康，连续 3 次探测无响应即自动重启（看门狗：预算 10 次，连续 5 个
+健康周期后重置——可用 `NB_WATCHDOG*` 调整，`NB_WATCHDOG=off` 关闭）。
+`netbird.service stop`（以及卸载）会清除模块添加的所有 ip 规则和 iptables 规则。
 
 ## 动态状态
 
 daemon 运行期间会定期刷新 `module.prop`。由于模块描述是单行元数据，状态
 以紧凑的成对字段显示：IP/对等节点、管理/信号、中继/接口、内存、CA 数量
-和刷新时间。
+和刷新时间。对等节点字段带直连/中转统计（`[P3 R1]` = 3 直连、1 中转）；
+`WD=n` 表示看门狗累计重启次数。
 
 ## 自定义 CA 信任
 

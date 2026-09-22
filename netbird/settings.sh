@@ -15,6 +15,36 @@ NB_SERVICE_LOG_FILE="$NB_RUN_DIR/service.log"
 NB_CA_BUNDLE="$NB_RUN_DIR/ca-bundle.pem"
 NB_CA_COUNT_FILE="$NB_RUN_DIR/ca-bundle.count"
 
+# Persistent user overrides: /data/adb/netbird/.env (KEY=VALUE lines, '#'
+# comments; see netbird.env.example). A variable already present in the
+# environment wins over the file, and the file wins over the defaults below.
+# Values exported here are inherited by every child script and the daemon.
+NB_ENV_FILE="$NB_DIR/.env"
+if [ -f "$NB_ENV_FILE" ]; then
+  nb_env_cr="$(printf '\r')"
+  while IFS= read -r nb_env_line || [ -n "$nb_env_line" ]; do
+    nb_env_line="${nb_env_line%"$nb_env_cr"}"
+    case "$nb_env_line" in
+      '' | '#'*) continue ;;
+      export\ *) nb_env_line="${nb_env_line#export }" ;;
+    esac
+    case "$nb_env_line" in
+      *=*) ;;
+      *) continue ;;
+    esac
+    nb_env_key="${nb_env_line%%=*}"
+    # Only plain identifiers may be eval'd as a variable name.
+    case "$nb_env_key" in
+      '' | [0-9]* | *[!A-Za-z0-9_]*) continue ;;
+    esac
+    eval "nb_env_set=\${$nb_env_key+set}"
+    [ "$nb_env_set" = "set" ] && continue
+    nb_env_value="${nb_env_line#*=}"
+    eval "export $nb_env_key=\$nb_env_value"
+  done < "$NB_ENV_FILE"
+  unset nb_env_line nb_env_key nb_env_value nb_env_set nb_env_cr
+fi
+
 # Persistent state (state.json, WireGuard keys) must live on a writable path;
 # the upstream default (/var/lib/netbird) does not exist on Android.
 NB_STATE_DIR="${NB_STATE_DIR:-$NB_DIR}"
@@ -32,6 +62,9 @@ export NB_CONFIG="$NB_CONFIG_FILE"
 export NB_DAEMON_ADDR="unix://$NB_SOCKET"
 export NB_LOG_FILE="$NB_LOG_FILE_PATH"
 export NB_LOG_LEVEL="${NB_LOG_LEVEL:-info}"
+# NetBird's own log rotation cap for client.log, in MiB. Upstream default15MB
+# is large for a phone; this module defaults to5MB (override in .env).
+export NB_LOG_MAX_SIZE_MB="${NB_LOG_MAX_SIZE_MB:-5}"
 export NB_DISABLE_DNS="${NB_DISABLE_DNS:-true}"
 # Official client environment variables (see docs.netbird.io/client/environment-variables):
 # - NB_DISABLE_SSH_CONFIG: don't write /etc/ssh/ssh_config.d (read-only on Android).
@@ -55,6 +88,27 @@ export NB_DAEMON_CMD
 # Set them to "true" in the environment to opt in.
 NB_DISABLE_IPV6="${NB_DISABLE_IPV6:-false}"
 NB_DISABLE_FIREWALL="${NB_DISABLE_FIREWALL:-false}"
+
+# Watchdog (module-status.sh watch loop): probe daemon health once per cycle
+# and restart it after NB_WATCHDOG_FAILS consecutive failures. The restart
+# budget (NB_WATCHDOG_MAX_RESTARTS) resets after5 healthy cycles. Set
+# NB_WATCHDOG=off in .env to disable. Not exported: only module scripts use
+# these, and every script re-reads .env via this file.
+NB_WATCHDOG="${NB_WATCHDOG:-on}"
+NB_WATCHDOG_FAILS="${NB_WATCHDOG_FAILS:-3}"
+NB_WATCHDOG_MAX_RESTARTS="${NB_WATCHDOG_MAX_RESTARTS:-10}"
+for nb_num_var in NB_WATCHDOG_FAILS NB_WATCHDOG_MAX_RESTARTS; do
+  eval "nb_num_val=\$$nb_num_var"
+  case "$nb_num_val" in
+    '' | *[!0-9]* | 0*)
+      case "$nb_num_var" in
+        NB_WATCHDOG_FAILS) NB_WATCHDOG_FAILS=3 ;;
+        NB_WATCHDOG_MAX_RESTARTS) NB_WATCHDOG_MAX_RESTARTS=10 ;;
+      esac
+      ;;
+  esac
+done
+unset nb_num_var nb_num_val
 
 mkdir -p "$NB_RUN_DIR" "$NB_CERT_DIR"
 

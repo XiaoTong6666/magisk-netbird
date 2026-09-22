@@ -178,6 +178,9 @@ stop_module_status() {
 }
 
 start_service() {
+  # Desired-state marker for the watchdog: set whenever the daemon should be
+  # running, cleared by stop_service. The watchdog only restarts when set.
+  echo1 > "$NB_RUN_DIR/netbird.desired"
   log Info "Starting NetBird daemon."
   if is_running; then
     log Info "NetBird daemon is already running."
@@ -217,6 +220,8 @@ start_service() {
 }
 
 stop_service() {
+  # Clear desired state first so the watchdog never races a manual stop.
+  rm -f "$NB_RUN_DIR/netbird.desired"
   log Info "Stopping NetBird daemon."
   if ! is_running; then
     cleanup_runtime
@@ -273,8 +278,9 @@ up_cmd() {
 }
 
 usage() {
-  echo "usage: netbird.service {start|stop|restart|status|up|down|login|log|refresh|route|version}"
+  echo "usage: netbird.service {start|stop|restart|status|up|down|login|log|refresh|route|peers|version}"
   echo "  up always adds --disable-dns before your extra flags."
+  echo "  peers shows per-peer connection type (P2P/Relayed), latency and traffic."
   echo "  Set NB_DISABLE_IPV6=true and/or NB_DISABLE_FIREWALL=true to append those on up."
 }
 
@@ -335,6 +341,9 @@ case "${1:-}" in
   route)
     ensure_android_route
     exit 0
+    ;;
+  peers)
+    exec "$module_status_script" peers
     ;;
   version)
     client_cmd version
