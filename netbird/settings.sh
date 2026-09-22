@@ -112,11 +112,10 @@ unset nb_num_var nb_num_val
 
 mkdir -p "$NB_RUN_DIR" "$NB_CERT_DIR"
 
-CURRENT_TIME="$(date '+%H:%M:%S')"
-
 log() {
   level="$1"
   shift
+  log_time="$(date '+%H:%M:%S' 2>/dev/null || echo unknown)"
   # Rotate service.log at 1 MiB (client.log is rotated by NetBird itself).
   if [ -f "$NB_SERVICE_LOG_FILE" ]; then
     log_size="$(wc -c < "$NB_SERVICE_LOG_FILE" 2>/dev/null | tr -d ' ' || true)"
@@ -127,8 +126,8 @@ log() {
       mv -f "$NB_SERVICE_LOG_FILE" "$NB_SERVICE_LOG_FILE.bak" 2>/dev/null || true
     fi
   fi
-  echo "$CURRENT_TIME [$level]: $*" >> "$NB_SERVICE_LOG_FILE"
+  echo "$log_time [$level]: $*" >> "$NB_SERVICE_LOG_FILE"
   if [ -t 1 ]; then
-    echo "$CURRENT_TIME [$level]: $*"
+    echo "$log_time [$level]: $*"
   fi
 }
