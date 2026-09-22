@@ -1,19 +1,34 @@
-# Magisk NetBird
+<p align="center">
+  <img src="docs/netbird-logo.png" alt="NetBird logo" width="340">
+</p>
 
-![Release](https://img.shields.io/github/v/release/ahsaboy/magisk-netbird)
-![CI](https://img.shields.io/github/actions/workflow/status/ahsaboy/magisk-netbird/release.yml?branch=main&label=CI)
-![Downloads](https://img.shields.io/github/downloads/ahsaboy/magisk-netbird/total)
-![NetBird](https://img.shields.io/github/v/release/netbirdio/netbird?label=NetBird)
-![Magisk](https://img.shields.io/badge/Magisk-%E2%89%A520.4-green)
-![Arch](https://img.shields.io/badge/arch-arm64%20%7C%20armv7%20%7C%20x86__64-lightgrey)
+<h1 align="center">Magisk NetBird</h1>
 
-**[English](README.md) · [中文](README.zh-CN.md)**
+<p align="center">
+  <img alt="Release" src="https://img.shields.io/github/v/release/ahsaboy/magisk-netbird?logo=git&logoColor=white">
+  <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/ahsaboy/magisk-netbird/release.yml?branch=main&label=CI&logo=githubactions&logoColor=white">
+  <img alt="Downloads" src="https://img.shields.io/github/downloads/ahsaboy/magisk-netbird/total?logo=github&logoColor=white">
+  <img alt="NetBird" src="https://img.shields.io/github/v/release/netbirdio/netbird?label=NetBird">
+  <img alt="Magisk" src="https://img.shields.io/badge/Magisk-%E2%89%A520.4-green?logo=magisk&logoColor=white">
+  <img alt="Arch" src="https://img.shields.io/badge/arch-arm64%20%7C%20armv7%20%7C%20x86__64-lightgrey?logo=android&logoColor=3C4043">
+</p>
+
+<p align="center"><b><a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a></b></p>
 
 Minimal Magisk module wrapper for the NetBird CLI daemon. Official NetBird
 binaries (currently v0.79.0) are bundled for three architectures and packaged
 by GitHub Actions.
 
 DNS management is disabled by default when joining with `netbird.service up`.
+
+## Architecture
+
+How the pieces fit together (official NetBird diagram — management service,
+signal server, relay and peers):
+
+<p align="center">
+  <img src="docs/netbird-architecture.png" alt="NetBird high-level architecture" width="720">
+</p>
 
 ## Download
 
@@ -41,7 +56,9 @@ git push origin main v1.3.0
 The `Release` workflow downloads the matching official NetBird release for
 each architecture, verifies sha256 against `checksums.txt`, packages the three
 zips, attaches them to the GitHub Release, and refreshes `update/*.json`,
-`update.json` and `CHANGELOG.md` on `main`.
+`update.json` and `CHANGELOG.md` on `main`. The stamped display version is
+`<tag>-(<NetBird version>)`, e.g. `v1.3.0-(0.79.0)`; the update check itself
+uses `versionCode`.
 
 Local packaging without CI (needs `netbird/bin/netbird-<arch>` in place,
 otherwise the installer falls back to downloading at install time):

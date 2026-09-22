@@ -24,6 +24,7 @@ jobs:
       nb: ${{ steps.ver.outputs.nb }}
       mv: ${{ steps.ver.outputs.mv }}
       vc: ${{ steps.ver.outputs.vc }}
+      display: ${{ steps.ver.outputs.display }}
     strategy:
       fail-fast: false
       matrix:
@@ -62,19 +63,22 @@ jobs:
               *) MV="$(grep '^version=' module.prop | cut -d= -f2)" ;;
             esac
           fi
-          # versionCode convention: major*10000 + minor*100 + patch (v1.2.0 -> 10200)
-          V="${MV#v}"
+          # versionCode convention: major*10000 + minor*100 + patch (v1.2.0 -> 10200).
+          # module.prop's version= carries a display suffix like "-(0.79.0)"; parse the bare x.y.z.
+          BASE="${MV%%-(*}"
+          V="${BASE#v}"
           MAJ="${V%%.*}"; R="${V#*.}"; MIN="${R%%.*}"; PAT="${R#*.}"; PAT="${PAT%%.*}"
           case "$MAJ$MIN$PAT" in
-            ''|*[!0-9]*) echo "::error::module version '$MV' is not x.y.z"; exit 1 ;;
+            ''|*[!0-9]*) echo "::error::module version '$BASE' is not x.y.z"; exit 1 ;;
           esac
           VC=$(( 10#$MAJ * 10000 + 10#$MIN * 100 + 10#$PAT ))
           {
             echo "nb=$NB"
-            echo "mv=$MV"
+            echo "mv=$BASE"
             echo "vc=$VC"
+            echo "display=$BASE-($NB)"
           } >> "$GITHUB_OUTPUT"
-          echo "NetBird v$NB | module $MV (versionCode $VC) | arch ${{ matrix.key }}"
+          echo "NetBird v$NB | module $BASE (versionCode $VC) | arch ${{ matrix.key }}"
 
       - name: Download official NetBird binary (sha256 verified)
         run: |
@@ -102,7 +106,7 @@ jobs:
       - name: Stamp module.prop
         run: |
           set -euo pipefail
-          sed -i "s|^version=.*|version=${{ steps.ver.outputs.mv }}|" module.prop
+          sed -i "s|^version=.*|version=${{ steps.ver.outputs.display }}|" module.prop
           sed -i "s|^versionCode=.*|versionCode=${{ steps.ver.outputs.vc }}|" module.prop
           grep -E '^(id|version|versionCode|updateJson)=' module.prop
 
@@ -144,18 +148,19 @@ jobs:
           MV='${{ needs.build.outputs.mv }}'
           VC='${{ needs.build.outputs.vc }}'
           NB='${{ needs.build.outputs.nb }}'
+          DISP='${{ needs.build.outputs.display }}'
           RAW="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main"
           ZIP_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
           CL="${RAW}/CHANGELOG.md"
           mkdir -p update
           for KEY in x86_64 arm64-v8a armv7; do
-            jq -n --arg v "$MV" --argjson vc "$VC" \
+            jq -n --arg v "$DISP" --argjson vc "$VC" \
               --arg z "$ZIP_BASE/magisk-netbird-${KEY}.zip" --arg c "$CL" \
               '{version: $v, versionCode: $vc, zipUrl: $z, changelog: $c}' \
               > "update/update-${KEY}.json"
           done
           # Legacy manifest for installs of the old v1.0.x line (single-arch, arm64)
-          jq -n --arg v "$MV" --argjson vc "$VC" \
+          jq -n --arg v "$DISP" --argjson vc "$VC" \
             --arg z "$ZIP_BASE/magisk-netbird-arm64-v8a.zip" --arg c "$CL" \
             '{version: $v, versionCode: $vc, zipUrl: $z, changelog: $c}' \
             > update.json

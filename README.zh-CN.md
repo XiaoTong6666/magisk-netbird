@@ -1,18 +1,32 @@
-# Magisk NetBird
+<p align="center">
+  <img src="docs/netbird-logo.png" alt="NetBird logo" width="340">
+</p>
 
-![Release](https://img.shields.io/github/v/release/ahsaboy/magisk-netbird)
-![CI](https://img.shields.io/github/actions/workflow/status/ahsaboy/magisk-netbird/release.yml?branch=main&label=CI)
-![Downloads](https://img.shields.io/github/downloads/ahsaboy/magisk-netbird/total)
-![NetBird](https://img.shields.io/github/v/release/netbirdio/netbird?label=NetBird)
-![Magisk](https://img.shields.io/badge/Magisk-%E2%89%A520.4-green)
-![Arch](https://img.shields.io/badge/arch-arm64%20%7C%20armv7%20%7C%20x86__64-lightgrey)
+<h1 align="center">Magisk NetBird</h1>
 
-[English](README.md) · **中文**
+<p align="center">
+  <img alt="Release" src="https://img.shields.io/github/v/release/ahsaboy/magisk-netbird?logo=git&logoColor=white">
+  <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/ahsaboy/magisk-netbird/release.yml?branch=main&label=CI&logo=githubactions&logoColor=white">
+  <img alt="Downloads" src="https://img.shields.io/github/downloads/ahsaboy/magisk-netbird/total?logo=github&logoColor=white">
+  <img alt="NetBird" src="https://img.shields.io/github/v/release/netbirdio/netbird?label=NetBird">
+  <img alt="Magisk" src="https://img.shields.io/badge/Magisk-%E2%89%A520.4-green?logo=magisk&logoColor=white">
+  <img alt="Arch" src="https://img.shields.io/badge/arch-arm64%20%7C%20armv7%20%7C%20x86__64-lightgrey?logo=android&logoColor=3C4043">
+</p>
+
+<p align="center"><b><a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a></b></p>
 
 NetBird CLI 常驻进程的精简 Magisk 模块封装。为三种架构打包官方 NetBird
 二进制（当前 v0.79.0），由 GitHub Actions 自动构建。
 
 使用 `netbird.service up` 加入网络时，默认禁用 DNS 管理。
+
+## 架构
+
+各组件如何协同（NetBird 官方高层架构图——管理服务、信号服务器、中继与对等节点）：
+
+<p align="center">
+  <img src="docs/netbird-architecture.png" alt="NetBird 高层架构图" width="720">
+</p>
 
 ## 下载
 
@@ -40,6 +54,8 @@ git push origin main v1.3.0
 `Release` 工作流会为每个架构下载对应的官方 NetBird 发布包、用
 `checksums.txt` 校验 sha256、打包三个 zip、附加到 GitHub Release，并在
 `main` 分支上刷新 `update/*.json`、`update.json` 和 `CHANGELOG.md`。
+写入的显示版本格式为 `<tag>-(<NetBird 版本>)`（如 `v1.3.0-(0.79.0)`），
+更新检测本身以 `versionCode` 为准。
 
 不走 CI 的本地打包（需要先放置 `netbird/bin/netbird-<arch>`，否则安装脚本
 会在安装时回退为在线下载）：
