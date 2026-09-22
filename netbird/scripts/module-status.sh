@@ -7,20 +7,18 @@ prop_update_interval="${NB_PROP_UPDATE_INTERVAL:-60}"
 watch_pid_file="$NB_RUN_DIR/module-status.pid"
 default_description="NetBird CLI daemon for Magisk with DNS management disabled by default."
 
-module_prop_path() {
-  if [ -n "${NB_MOD_DIR:-}" ] && [ -f "$NB_MOD_DIR/module.prop" ]; then
-    echo "$NB_MOD_DIR/module.prop"
-    return 0
-  fi
+# Print every existing module.prop that should receive the status line: the
+# active module dir, the staged upgrade dir, and the module.path hint. After
+# an install, module.path points at modules_update while the Magisk app still
+# shows the active dir, so updating only one of them leaves a stale view.
+module_prop_paths() {
   for path in \
+    "${NB_MOD_DIR:-}/module.prop" \
+    "$(cat "$NB_DIR/module.path" 2>/dev/null || true)/module.prop" \
     /data/adb/modules/magisk-netbird/module.prop \
     /data/adb/modules_update/magisk-netbird/module.prop; do
-    if [ -f "$path" ]; then
-      echo "$path"
-      return 0
-    fi
-  done
-  return 1
+    [ -n "$path" ] && [ "$path" != "/module.prop" ] && [ -f "$path" ] && echo "$path"
+  done | sort -u
 }
 
 daemon_pid() {
@@ -149,30 +147,33 @@ build_description() {
 }
 
 write_module_prop() {
-  prop_file="$(module_prop_path)" || return 0
+  prop_files="$(module_prop_paths)"
+  [ -n "$prop_files" ] || return 0
   description="$(build_description)"
   [ -n "$description" ] || description="$default_description"
 
-  tmp_file="$prop_file.tmp.$$"
-  awk -v description="$description" '
-    BEGIN { updated = 0 }
-    /^description=/ {
-      print "description=" description
-      updated = 1
-      next
-    }
-    { print }
-    END {
-      if (!updated) {
+  for prop_file in $prop_files; do
+    tmp_file="$prop_file.tmp.$$"
+    awk -v description="$description" '
+      BEGIN { updated = 0 }
+      /^description=/ {
         print "description=" description
+        updated = 1
+        next
       }
-    }
-  ' "$prop_file" > "$tmp_file" &&
-    mv -f "$tmp_file" "$prop_file" &&
-    chmod 0644 "$prop_file" 2>/dev/null || {
-      rm -f "$tmp_file"
-      return 1
-    }
+      { print }
+      END {
+        if (!updated) {
+          print "description=" description
+        }
+      }
+    ' "$prop_file" > "$tmp_file" &&
+      mv -f "$tmp_file" "$prop_file" &&
+      chmod 0644 "$prop_file" 2>/dev/null || {
+        rm -f "$tmp_file"
+        return 1
+      }
+  done
 }
 
 watcher_running() {
@@ -206,6 +207,11 @@ case "${1:-update}" in
     ;;
   watch)
     while true; do
+      # Re-check the Android route rule regularly so a Wi-Fi/cellular switch
+      # does not leave the daemon with a stale routing table lookup.
+      if [ -n "${NB_SCRIPTS_DIR:-}" ] && [ -x "$NB_SCRIPTS_DIR/netbird.service" ]; then
+        "$NB_SCRIPTS_DIR/netbird.service" route >/dev/null 2>&1 || true
+      fi
       write_module_prop >/dev/null 2>&1 || true
       sleep "$prop_update_interval"
     done

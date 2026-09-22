@@ -48,20 +48,82 @@ ensure_android_route() {
     log Warning "No Android default route table found for root uid."
     return 0
   fi
+  # The table may appear as a number (1032) in route output but as a name
+  # (wlan0) in rule output; resolve BOTH forms so existence checks and the
+  # stale-rule comparison never mistake them for different tables.
+  route_table_id=""
+  route_table_name=""
   case "$route_table" in
     *[!0-9]*)
+      route_table_name="$route_table"
       route_table_id="$(
         awk -v name="$route_table" '$2 == name { print $1; exit }' \
           /data/misc/net/rt_tables /etc/iproute2/rt_tables 2>/dev/null || true
       )"
-      [ -n "$route_table_id" ] && route_table="$route_table_id"
+      ;;
+    *)
+      route_table_id="$route_table"
+      route_table_name="$(
+        awk -v id="$route_table" '$1 == id { print $2; exit }' \
+          /data/misc/net/rt_tables /etc/iproute2/rt_tables 2>/dev/null || true
+      )"
       ;;
   esac
-  if ip rule show 2>/dev/null | grep -q "uidrange 0-0 lookup $route_table"; then
+  add_lookup="${route_table_id:-$route_table}"
+  lookup_pattern="$route_table"
+  [ -n "$route_table_id" ] && [ "$route_table_id" != "$route_table" ] &&
+    lookup_pattern="$lookup_pattern|$route_table_id"
+  [ -n "$route_table_name" ] && [ "$route_table_name" != "$route_table" ] &&
+    lookup_pattern="$lookup_pattern|$route_table_name"
+  # After a Wi-Fi/cellular switch the default route moves to another table;
+  # drop our stale pref-100 rules so the current table's rule takes over.
+  for stale_lookup in $(
+    ip rule show 2>/dev/null |
+      awk -v p="$root_route_rule_pref:" \
+        '$1 == p && /uidrange 0-0/ { for (i = 1; i <= NF; i++) if ($i == "lookup") print $(i + 1) }'
+  ); do
+    case "$stale_lookup" in
+      "$route_table"|"$route_table_id"|"$route_table_name") continue ;;
+    esac
+    ip rule del pref "$root_route_rule_pref" from all uidrange 0-0 lookup "$stale_lookup" >/dev/null 2>&1 || true
+  done
+  # Scope the existence check to OUR pref-100 rule: Android netd keeps its
+  # own uidrange rules (with iif/oif) that must not be mistaken for ours.
+  if ip rule show 2>/dev/null |
+    awk -v p="$root_route_rule_pref:" '$1 == p' |
+    grep -Eq "uidrange 0-0 lookup ($lookup_pattern)"; then
     return 0
   fi
-  ip rule add pref "$root_route_rule_pref" from all uidrange 0-0 lookup "$route_table" >/dev/null 2>&1 ||
-    log Warning "Failed to add root uid route rule for table $route_table."
+  ip rule add pref "$root_route_rule_pref" from all uidrange 0-0 lookup "$add_lookup" >/dev/null 2>&1 ||
+    log Warning "Failed to add root uid route rule for table $add_lookup."
+}
+
+# Drop route rules this module added (used on stop/uninstall).
+cleanup_runtime() {
+  ip rule del pref "$overlay_rule_pref" from all lookup main suppress_prefixlength 0 >/dev/null 2>&1 || true
+  ip rule del pref "$overlay_rule_pref" to 100.64.0.0/10 lookup main >/dev/null 2>&1 || true
+  ip -6 rule del pref "$overlay_rule_pref" to fd00::/8 lookup main >/dev/null 2>&1 || true
+  for lookup in $(
+    ip rule show 2>/dev/null |
+      awk -v p="$root_route_rule_pref:" \
+        '$1 == p && /uidrange 0-0/ { for (i = 1; i <= NF; i++) if ($i == "lookup") print $(i + 1) }'
+  ); do
+    ip rule del pref "$root_route_rule_pref" from all uidrange 0-0 lookup "$lookup" >/dev/null 2>&1 || true
+  done
+  # The wt0 interface is already destroyed when the daemon exits, so delete
+  # the rules by parsing the live rule list instead of enumerating interfaces.
+  for fw in iptables ip6tables; do
+    command -v "$fw" >/dev/null 2>&1 || continue
+    for chain in INPUT OUTPUT; do
+      "$fw" -S "$chain" 2>/dev/null |
+        grep -E "^-A $chain -[io] (wt|wg|nb|netbird)[0-9a-zA-Z._@-]* -p (icmp|ipv6-icmp) -j ACCEPT" |
+        sed 's/^-A /-D /' |
+        while read -r del_rule; do
+          # shellcheck disable=SC2086
+          "$fw" $del_rule >/dev/null 2>&1 || true
+        done
+    done
+  done
 }
 
 ensure_rule() {
@@ -69,12 +131,14 @@ ensure_rule() {
     "$@" -I "$rule_chain" 1 $rule_args >/dev/null 2>&1 || true
 }
 
+netbird_ifaces() {
+  ip -o link show 2>/dev/null |
+    awk -F': ' '$2 ~ /^(wt|wg|nb|netbird)/ { print $2 }' |
+    cut -d@ -f1
+}
+
 ensure_netbird_icmp_firewall() {
-  for iface in $(
-    ip -o link show 2>/dev/null |
-      awk -F': ' '$2 ~ /^(wt|wg|nb|netbird)/ { print $2 }' |
-      cut -d@ -f1
-  ); do
+  for iface in $(netbird_ifaces); do
     rule_chain="INPUT"
     rule_args="-i $iface -p icmp -j ACCEPT"
     ensure_rule iptables
@@ -138,7 +202,14 @@ start_service() {
     echo "$pid" > "$pid_file"
     log Info "NetBird daemon started with PID $pid."
     start_module_status
-    ( sleep 5; refresh_runtime; update_module_status ) >/dev/null 2>&1 &
+    # Re-apply runtime bits after the interface is up, but bail out if the
+    # service was stopped in the meantime (must not re-add cleaned-up rules).
+    (
+      sleep 5
+      is_running || exit 0
+      refresh_runtime
+      update_module_status
+    ) >/dev/null 2>&1 &
     return 0
   fi
   log Error "NetBird daemon failed to start."
@@ -149,6 +220,7 @@ start_service() {
 stop_service() {
   log Info "Stopping NetBird daemon."
   if ! is_running; then
+    cleanup_runtime
     log Info "NetBird daemon is not running."
     return 0
   fi
@@ -162,6 +234,7 @@ stop_service() {
       kill -9 "$pid" >/dev/null 2>&1 || true
     done
   fi
+  cleanup_runtime
   rm -f "$pid_file"
   stop_module_status
 }
@@ -184,15 +257,26 @@ client_cmd() {
 }
 
 up_cmd() {
-  client_cmd up --disable-dns "$@"
+  # Opt-in flags (see settings.sh): NB_DISABLE_IPV6=true / NB_DISABLE_FIREWALL=true.
+  # Appended before "$@" so an explicit flag on the command line still wins.
+  up_extra_flags=""
+  if [ "$NB_DISABLE_IPV6" = "true" ]; then
+    up_extra_flags="$up_extra_flags --disable-ipv6"
+  fi
+  if [ "$NB_DISABLE_FIREWALL" = "true" ]; then
+    up_extra_flags="$up_extra_flags --disable-firewall"
+  fi
+  # shellcheck disable=SC2086
+  client_cmd up --disable-dns $up_extra_flags "$@"
   rc="$?"
   refresh_runtime
   return "$rc"
 }
 
 usage() {
-  echo "usage: netbird.service {start|stop|restart|status|up|down|login|log|refresh|version}"
+  echo "usage: netbird.service {start|stop|restart|status|up|down|login|log|refresh|route|version}"
   echo "  up always adds --disable-dns before your extra flags."
+  echo "  Set NB_DISABLE_IPV6=true and/or NB_DISABLE_FIREWALL=true to append those on up."
 }
 
 case "${1:-}" in
@@ -248,6 +332,10 @@ case "${1:-}" in
   refresh)
     refresh_runtime
     update_module_status
+    ;;
+  route)
+    ensure_android_route
+    exit 0
     ;;
   version)
     client_cmd version

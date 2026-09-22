@@ -30,14 +30,68 @@ esac
 
 ui_print "- Detected architecture: $ARCH"
 
+# Fetch a URL into a file, preferring TLS verification. The insecure retry is
+# only needed because Magisk's busybox wget often has no CA store available.
+gh_fetch() {
+  fetch_timeout="$1"
+  fetch_out="$2"
+  fetch_url="$3"
+  rm -f "$fetch_out"
+  if wget --timeout="$fetch_timeout" -qO "$fetch_out" "$fetch_url" 2>/dev/null && [ -s "$fetch_out" ]; then
+    return 0
+  fi
+  rm -f "$fetch_out"
+  if wget --no-check-certificate --timeout="$fetch_timeout" -qO "$fetch_out" "$fetch_url" 2>/dev/null && [ -s "$fetch_out" ]; then
+    return 0
+  fi
+  rm -f "$fetch_out"
+  return 1
+}
+
+# Verify the downloaded archive against the release checksums.txt (sha256).
+gh_verify_sha256() {
+  verify_file="$1"
+  if ! command -v sha256sum >/dev/null 2>&1; then
+    ui_print "! sha256sum unavailable; skipping SHA256 verification"
+    return 0
+  fi
+  verify_name="$(basename "$verify_file")"
+  sums_name="$(echo "$verify_name" | sed 's/_linux_.*$//')_checksums.txt"
+  sums_url="$(grep -o '"browser_download_url": *"[^"]*"' "$release_json" | grep "$sums_name" |
+    sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/' | head -n 1)"
+  if [ -z "$sums_url" ]; then
+    ui_print "! No checksums file ($sums_name) in release; skipping SHA256 verification"
+    return 0
+  fi
+  if ! gh_fetch 30 "$TMPDIR/$sums_name" "$sums_url"; then
+    ui_print "! Unable to download checksums file; skipping SHA256 verification"
+    return 0
+  fi
+  expected="$(grep " $verify_name\$" "$TMPDIR/$sums_name" | awk '{ print $1 }' | head -n 1)"
+  if [ -z "$expected" ]; then
+    ui_print "! $verify_name not listed in checksums; skipping SHA256 verification"
+    return 0
+  fi
+  actual="$(sha256sum "$verify_file" | awk '{ print $1 }')"
+  if [ "$expected" != "$actual" ]; then
+    ui_print "! SHA256 mismatch for $verify_name"
+    ui_print "!  expected: $expected"
+    ui_print "!  actual:   $actual"
+    rm -f "$verify_file"
+    return 1
+  fi
+  ui_print "- SHA256 verified: $verify_name"
+}
+
 gh_download() {
   repo="$1"
   match="$2"
+  release_json="$TMPDIR/gh-release.json"
+  gh_fetch 10 "$release_json" "https://api.github.com/repos/${repo}/releases/latest" || return 1
   download_url="$(
-    wget --no-check-certificate --timeout=10 -qO- "https://api.github.com/repos/${repo}/releases/latest" |
-      grep "browser_download_url" |
+    grep -o '"browser_download_url": *"[^"]*"' "$release_json" |
       grep "$match" |
-      sed 's/.*"browser_download_url": "\([^"]*\)".*/\1/' |
+      sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/' |
       head -n 1 || true
   )"
   if [ -z "$download_url" ]; then
@@ -45,7 +99,8 @@ gh_download() {
   fi
   filename=$(basename "$download_url")
   ui_print "- Downloading $filename"
-  wget --no-check-certificate --timeout=120 -qO "$TMPDIR/$filename" "$download_url" || return 1
+  gh_fetch 120 "$TMPDIR/$filename" "$download_url" || return 1
+  gh_verify_sha256 "$TMPDIR/$filename" || return 1
 }
 
 ui_print "- Extracting module files"
@@ -57,13 +112,25 @@ echo "$MODPATH" > "$NB_DIR/module.path"
 unzip -qqjo "$ZIPFILE" "netbird/scripts/*" -d "$NB_SCRIPTS_DIR"
 unzip -qqjo "$ZIPFILE" "netbird/settings.sh" -d "$NB_DIR"
 
-unzip -qqjo "$ZIPFILE" "netbird/bin/netbird-$BUNDLED_ARCH" -d "$NB_BIN_DIR" 2>/dev/null || true
-if [ -f "$NB_BIN_DIR/netbird-$BUNDLED_ARCH" ]; then
-  mv -f "$NB_BIN_DIR/netbird-$BUNDLED_ARCH" "$NB_BIN_DIR/netbird"
+# Bundled binary: stage into a fresh temp dir and check for the FILE (device
+# unzip returns rc=0 even when no member matched), then atomically replace.
+# rm first avoids ETXTBSY when the old daemon still has the file mapped.
+rm -rf "$NB_DIR/.newbin"
+mkdir -p "$NB_DIR/.newbin" "$NB_BIN_DIR"
+unzip -qqjo "$ZIPFILE" "netbird/bin/netbird-$BUNDLED_ARCH" -d "$NB_DIR/.newbin" 2>/dev/null || true
+new_bin="$NB_DIR/.newbin/netbird-$BUNDLED_ARCH"
+if [ ! -f "$new_bin" ]; then
+  unzip -qqjo "$ZIPFILE" "netbird/bin/netbird" -d "$NB_DIR/.newbin" 2>/dev/null || true
+  new_bin="$NB_DIR/.newbin/netbird"
 fi
-if [ ! -f "$NB_BIN_DIR/netbird" ]; then
-  unzip -qqjo "$ZIPFILE" "netbird/bin/netbird" -d "$NB_BIN_DIR" 2>/dev/null || true
+if [ -f "$new_bin" ]; then
+  rm -f "$NB_BIN_DIR/netbird"
+  mv -f "$new_bin" "$NB_BIN_DIR/netbird"
+  ui_print "- Installed bundled netbird binary"
+else
+  ui_print "! No bundled netbird binary in zip; keeping existing or downloading"
 fi
+rm -rf "$NB_DIR/.newbin"
 
 if [ ! -f "$NB_BIN_DIR/netbird" ]; then
   gh_download "netbirdio/netbird" "netbird_.*_linux_${RELEASE_ARCH}\\.tar\\.gz" || abort "! Unable to download NetBird release"
@@ -81,6 +148,9 @@ set_perm_recursive "$NB_BIN_DIR" 0 0 0755 0755 "u:object_r:system_file:s0"
 set_perm_recursive "$NB_SCRIPTS_DIR" 0 0 0755 0755 "u:object_r:system_file:s0"
 set_perm_recursive "$MODPATH/system/bin" 0 0 0755 0755 "u:object_r:system_file:s0"
 set_perm "$MODPATH/service.sh" 0 0 0755 "u:object_r:system_file:s0"
+if [ -f "$MODPATH/action.sh" ]; then
+  set_perm "$MODPATH/action.sh" 0 0 0755 "u:object_r:system_file:s0"
+fi
 
 ui_print "- Starting NetBird service in background"
 "$NB_SCRIPTS_DIR/start.sh" postinstall >/dev/null 2>&1 &
@@ -98,3 +168,5 @@ ui_print " After reboot:"
 ui_print "   su -c 'netbird.service up --setup-key <KEY> --management-url <URL>'"
 ui_print "   su -c 'netbird.service status'"
 ui_print " DNS management is disabled by default with --disable-dns."
+ui_print " Tip: prefer --setup-key-file <path> over --setup-key to keep the key"
+ui_print "      out of shell history and 'ps' output."
