@@ -180,7 +180,7 @@ stop_module_status() {
 start_service() {
   # Desired-state marker for the watchdog: set whenever the daemon should be
   # running, cleared by stop_service. The watchdog only restarts when set.
-  echo1 > "$NB_RUN_DIR/netbird.desired"
+  echo 1 > "$NB_RUN_DIR/netbird.desired"
   log Info "Starting NetBird daemon."
   if is_running; then
     log Info "NetBird daemon is already running."

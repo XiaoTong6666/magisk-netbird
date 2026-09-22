@@ -231,7 +231,7 @@ watchdog_check() {
     if [ "$wd_healthy" -ge 5 ] && [ "$wd_restarts" -gt 0 ]; then
       wd_restarts=0
       wd_gave_up=0
-      echo0 > "$NB_RUN_DIR/watchdog.count"
+      echo 0 > "$NB_RUN_DIR/watchdog.count"
       log Info "Watchdog: daemon healthy again; restart budget reset."
     fi
     return 0
