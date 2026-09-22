@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.0 — NetBird v0.79.0
+
+- Builds: `magisk-netbird-x86_64.zip` / `magisk-netbird-arm64-v8a.zip` / `magisk-netbird-armv7.zip`
+- See the GitHub release notes for details.
+
 ## v1.2.0 (2026-09-22) — NetBird v0.79.0
 
 - Rebuilt release pipeline: three official-binary builds (`x86_64` / `arm64-v8a` / `armv7`), packaged by GitHub Actions with sha256-verified downloads from the official NetBird releases.
