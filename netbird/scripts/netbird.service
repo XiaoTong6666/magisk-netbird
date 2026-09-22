@@ -3,7 +3,6 @@
 DIR=$(dirname "$(realpath "$0")")
 . "$DIR/../settings.sh"
 
-program_name="netbird"
 pid_file="$NB_RUN_DIR/netbird.pid"
 cert_trust_script="$NB_SCRIPTS_DIR/cert-trust.sh"
 module_status_script="$NB_SCRIPTS_DIR/module-status.sh"

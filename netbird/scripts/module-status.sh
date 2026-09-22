@@ -209,7 +209,7 @@ case "${1:-update}" in
     while true; do
       # Re-check the Android route rule regularly so a Wi-Fi/cellular switch
       # does not leave the daemon with a stale routing table lookup.
-      if [ -n "${NB_SCRIPTS_DIR:-}" ] && [ -x "$NB_SCRIPTS_DIR/netbird.service" ]; then
+      if [ -x "$NB_SCRIPTS_DIR/netbird.service" ]; then
         "$NB_SCRIPTS_DIR/netbird.service" route >/dev/null 2>&1 || true
       fi
       write_module_prop >/dev/null 2>&1 || true
@@ -220,11 +220,8 @@ case "${1:-update}" in
     stop_watcher
     write_module_prop
     ;;
-  once)
-    build_description
-    ;;
   *)
-    echo "usage: module-status.sh {update|start|stop|once}"
+    echo "usage: module-status.sh {update|start|stop|watch}"
     exit 1
     ;;
 esac
